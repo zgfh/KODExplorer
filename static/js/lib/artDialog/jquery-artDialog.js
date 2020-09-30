@@ -32,7 +32,35 @@ var dialogList = {//加入人物列表
 		} catch(e) {};
 	}
 };
-//rightMenu.hidden();
+//$.contextMenu.hidden();
+
+var bindTouchDrag = function($wrap){
+	if(!isWap()){
+		return;
+	}
+	var startLeft,startTop;
+	var position = function(x,y){
+		$wrap.css({
+			left:x + startLeft,
+			top :y + startTop
+		});
+	}
+	$wrap.find('.aui-title').drag({
+		start:function(){
+			startLeft = parseInt($wrap.css('left'));
+			startTop  = parseInt($wrap.css('top'));
+		},
+		move:function(offsetx,offsety,e){
+			position(offsetx,offsety);
+			$wrap.addClass('aui-state-drag');
+			return false;
+		},
+		end:function(offsetx,offsety){
+			$wrap.removeClass('aui-state-drag');
+			position(offsetx,offsety);
+		}
+	});
+}
 
 
 ;(function ($, window, undefined) {
@@ -46,7 +74,7 @@ var _thisScript,_path,
 	_$html = $('html'),
 	_elem = document.documentElement,
 	_isMobile = 'createTouch' in document && !('onmousemove' in _elem)
-		|| /(iPhone|iPad|iPod)/i.test(navigator.userAgent),
+		|| /(iPhone|iPad|iPod|Android)/i.test(navigator.userAgent),
 	_expando = 'artDialog' + + new Date,
 	_titleBarHeight = 0;
 
@@ -54,6 +82,12 @@ var artDialog = function (config, ok, cancel) {
 	config = config || {};
 	if (typeof config === 'string' || config.nodeType === 1) {
 		config = {content: config, fixed: !_isMobile};
+	};
+
+	if (typeof(LNG) != 'undefined') {
+		artDialog.defaults.title=LNG.tips;
+		artDialog.defaults.okVal = LNG.button_ok;
+		artDialog.defaults.cancelVal = LNG.button_cancel;
 	};
 
 	var api,
@@ -66,7 +100,14 @@ var artDialog = function (config, ok, cancel) {
 	};
 
 	// 兼容v4.1.0之前的参数，未来版本将删除此
-	$.each({ok:"yesFn",cancel:"noFn",close:"closeFn",init:"initFn",okVal:"yesText",cancelVal:"noText"},
+	$.each({
+		ok:"yesFn",
+		cancel:"noFn",
+		close:"closeFn",
+		init:"initFn",
+		okVal:"yesText",
+		cancelVal:"noText"
+	},
 	function(i,o){config[i]=config[i]!==undefined?config[i]:config[o]});
 
 	// 返回跟随模式或重复定义的ID
@@ -110,10 +151,9 @@ var artDialog = function (config, ok, cancel) {
 
 	//添加到任务栏
 	if (config && config.hasOwnProperty('title') && config['title'] !== false){
-		config.title = '<img draggable="false" src="'+config.ico+'" />'+config.title;
-		if (_count>=1) dialogList.add(config.id,config.title);
+		config.title = config.ico+config.title;
+		if (_count>=1 && !config.disableTab) dialogList.add(config.id,config.title);
 	}
-
 	var dialog = new artDialog.fn._init(config);
 	artDialog.list[config.id] = dialog;
 	return dialog;
@@ -136,27 +176,41 @@ artDialog.fn = artDialog.prototype = {
 		if (config.resize && config.title != false) {
 			DOM.wrap.addClass('dialog-can-resize');
 		}
+		DOM.wrap.find('.aui-content').addClass('can-select');
+
+		if($.isIE8()){
+			config.animate = false;
+			this.config.animate = false;
+		}
 
 		//没有title
 		if(!config.title){
 			//DOM.wrap.find('.dialogShow').removeClass('dialogShow');
+		}else{
+			config.title = urlDecode(config.title);//正常会多一次,暂忽略此bug
 		}
 		//是否可以调节大小 对应样式处理
 		if (config.simple && config.title != false) {
 			DOM.wrap.addClass('dialog-simple');
 			DOM.wrap.die('mouseenter').live('mouseenter',function(){
-				$(this).find('.aui_outer').addClass('dialog_mouse_in');
+				$(this).find('.aui-outer').addClass('dialog-mouse-in');
 			}).live('mouseleave',function(){
-				$(this).find('.aui_outer').removeClass('dialog_mouse_in');
+				$(this).find('.aui-outer').removeClass('dialog-mouse-in');
 			});
 		}
-		DOM.wrap.find('.dialog_menu').attr('id',config.id);
+		DOM.wrap.find('.dialog-menu').attr('id',config.id);
 		DOM.wrap.addClass(config.id);
+		DOM.wrap.addClass("artDialog "+config.className);
 		DOM.close[config.cancel === false ? 'hide' : 'show']();
 		DOM.icon[0].style.display = icon ? '' : 'none';
-		DOM.iconBg.css(iconBg || {background: 'none'});
+		DOM['icon-bg'].css(iconBg || {background: 'none'});
 		DOM.title.css('cursor', config.drag ? 'move' : 'auto');
-		DOM.content.css('padding', config.padding);
+		DOM.main.css('padding', config.padding);
+		DOM.wrap.data('artDialog',that);
+		if(config.css){
+			DOM.wrap.css(config.css);
+		}
+
 
 		that[config.show ? 'show' : 'hide'](true)
 		that.button(config.button)
@@ -164,7 +218,15 @@ artDialog.fn = artDialog.prototype = {
 		.content(config.content, true)
 		.size(config.width, config.height)
 		.time(config.time);
+		if( config.width == "100%" && //100%则全屏
+			config.height == "100%"){
+			DOM.wrap.addClass('dialog-max dialog-max-first');
+		}
 
+		if( isWap() && 
+			config.height !='100%'){//统一设置位置
+			config.top = '40px';
+		}
 		config.follow
 		? that.follow(config.follow)
 		: that.position(config.left, config.top);
@@ -176,18 +238,33 @@ artDialog.fn = artDialog.prototype = {
 		}
 		that.zIndex().focus();
 		config.lock && that.lock();
-
-		//初始化设定高度；避免拖出可视区导致变形问题
-		if($(DOM.wrap).get(0).style.width == 'auto'){
-			$(DOM.wrap).css('width',DOM.wrap.outerWidth());
-		}
+		that.resetDialogWidth();
 		
 		that._addEvent();
 		config.init && config.init.call(that, window);
 		_titleBarHeight = DOM.title.css('height');
 		_titleBarHeight = _titleBarHeight.replace('px','');
 		$(DOM.wrap).find('iframe').focus();
+
+		var $iframe = $(DOM.wrap).find('iframe');
+		$iframe.attr('allowTransparency', true)
+			.attr('allowfullscreen','true')
+			.attr('webkitallowfullscreen','true')
+			.attr('mozallowfullscreen','true')
+
+		bindTouchDrag($(DOM.wrap));
 		return that;
+	},
+	
+	//初始化设定高度；避免拖出可视区导致变形问题
+	resetDialogWidth:function(){
+		var that = this,
+			DOM = that.DOM;
+		//初始化设定高度；避免拖出可视区导致变形问题
+		if($(DOM.wrap).get(0).style.width == 'auto'){
+			var size = Math.max(DOM.wrap.outerWidth(),DOM.wrap.find('.aui-border').outerWidth());
+			$(DOM.wrap).css('min-width',size);
+		}
 	},
 
 
@@ -217,12 +294,21 @@ artDialog.fn = artDialog.prototype = {
 			$content.html(msg)
 			$frame = $content.find('iframe');
 			if($frame.length>0){
-				$content.append('<div class="aui_loading"><span>loading..</span></div>');
+				//$frame.get(0).src = "http://baidu.com";
+				$content.append('<div class="aui-loading"><span>loading..</span></div>');
+				DOM.wrap.find(".aui-loading").css({'top':DOM.wrap.find('.aui-title').height()/2  });
+
 				$frame.css('display','none');
 				$frame.load(function(){
-					$content.find('.aui_loading').fadeOut(600);
-					that.reset_title_length();
+					$content.find('.aui-loading').fadeOut(600).remove();
+					$frame.get(0).style.cssText = 'left:0;top:0;width:100%;height:100%;border:none';
+					that.resetTitleLength();
 				});
+				//iframe 持续未加载完成处理
+				setTimeout(function(){
+					DOM.content.find('.aui-loading').fadeOut(600).remove();
+					$frame.get(0).style.cssText = 'left:0;top:0;width:100%;height:100%;border:none';
+				},500);
 				$frame.fadeIn(300);
 			}
 		} else if (msg && msg.nodeType === 1) {
@@ -279,7 +365,7 @@ artDialog.fn = artDialog.prototype = {
 		var DOM = this.DOM,
 			wrap = DOM.wrap,
 			title = DOM.title,
-			className = 'aui_state_noTitle';
+			className = 'aui-state-no-title';
 
 		if (text === undefined) return title[0];
 		if (text === false) {
@@ -292,13 +378,13 @@ artDialog.fn = artDialog.prototype = {
 			title.data('data-title',text);
 			var that = this;
 			setTimeout(function(){
-				that.reset_title_length();
+				that.resetTitleLength();
 			},50);
 		};
 		return this;
 	},
 
-	string_width:function(str,font_size){
+	stringWidth:function(str,font_size){
 	    var span = $("#__getwidth");
 	    if (span.length==0) {
 	    	$("<span id='__getwidth'></span>").appendTo('body');
@@ -309,39 +395,42 @@ artDialog.fn = artDialog.prototype = {
 	    span.css({'font-size':font_size+'px'});
 	    return span.width();
 	},
-	reset_title_length:function(){
-		if(!this.config.resize){
+	resetTitleLength:function(){
+		if(this.config && !this.config.resize){
 			return;
 		}
 		var DOM = this.DOM,
 			title = DOM.title,
-			font_size = parseInt(title.css("font-size")),
-			title_str = title.data('data-title'),
-			default_width = 200,	//其他占用
-			max_width = title.width();
-		var str_width = this.string_width(title_str,font_size);
-		if( str_width<max_width-default_width || str_width< 150){
-			title.html(title_str);
+			fontSize = parseInt(title.css("font-size")),
+			titleBefore = title.data('data-title'),
+			titleStr = titleBefore,
+			defaultWidth = 200,	//其他占用
+			maxWidth = title.width();
+		var strWidth = this.stringWidth(titleStr,fontSize);
+		if( strWidth< maxWidth - defaultWidth || strWidth< 150){
+			title.html(titleStr);
 			return;
 		}
 
 		//截取title头部iocn
-		var str_pre='';
-		if(title_str.substr(0,4)=="<img"){
-			var point = title_str.indexOf('>')+1;
-			str_pre = title_str.substr(0,point);
-			title_str = title_str.substr(point)
+		var strPre='';
+		if(titleStr.substr(0,1)=="<"){// <img src=""/>  <i class="..."></i>
+			var point = titleStr.lastIndexOf('>')+1;
+			strPre = titleStr.substr(0,point);
+			titleStr = titleStr.substr(point)
 		}
-		while(this.string_width(title_str,font_size)>max_width-default_width){
-			title_str= title_str.substr(1);
-			if(title_str.length<10){
+
+		while(this.stringWidth(titleStr,fontSize)> maxWidth - defaultWidth){
+			titleStr= titleStr.substr(1);
+			if(titleStr.length<10){
 				break;
 			}
 		}
-		if($(title).text() == title_str){
+		if(htmlRemoveTags(titleBefore) == titleStr){
+			title.html(titleBefore);
 			return;
 		}
-		title.html(str_pre+"..."+title_str);
+		title.html(strPre+"..."+titleStr);
 	},
 
 	/**
@@ -515,7 +604,7 @@ artDialog.fn = artDialog.prototype = {
 			DOM = that.DOM,
 			buttons = DOM.buttons,
 			elem = buttons[0],
-			strongButton = 'aui_state_highlight',
+			strongButton = 'aui-state-highlight',
 			listeners = that._listeners = that._listeners || {},
 			list = $.isArray(ags[0]) ? ags[0] : [].slice.call(ags);
 
@@ -557,32 +646,80 @@ artDialog.fn = artDialog.prototype = {
 
 	//控制隐藏和显示
 	display:function(type){
-		var $wrap = this.DOM.wrap;
 		var that = this;
+		var $wrap = that.DOM.wrap;
+		var $main = $(that.DOM.main[0]);
 		if(type == undefined) type = true;//默认显示
+		
+		if(!that.config.animate){
+			if (type){//显示
+				that.resetTitleLength();
+				this.zIndex();
+				if ($wrap.css('visibility') != 'hidden') return this;
+				$wrap.css({visibility:'visible'}).fadeIn(100);
+			}else{//隐藏
+				if ($wrap.css('visibility') == 'hidden') return this;
+				$wrap.fadeOut(100,function(){
+					$wrap.css({visibility:'hidden'});
+				});
+			}
+			return this;
+		}
+
+		var animateTime = 200;
+		var animateCss = 'translation-200';
+		$wrap.addClass(animateCss);//animation 0.25s all
+		setTimeout(function(){
+			$wrap.removeClass(animateCss);
+		},animateTime);
+
+		if(this.hasFrame()){
+			$main.find('.aui-content').hide();
+			setTimeout(function(){
+				$main.find('.aui-content').fadeIn(100);
+			},animateTime);
+		}
+
 		if (type){//显示
-			that.reset_title_length();
+			that.resetTitleLength();
 			this.zIndex();
 			if ($wrap.css('visibility') != 'hidden') return this;
-			$wrap
-				.css({visibility:'visible',left:$wrap.attr("data-left")})
-				.addClass('animated dialogDisplayShow')
-				.stop(true,true)
-				.animate({opacity:1},{duration:200,complete:function(){
-					$wrap.removeClass('animated').removeClass('dialogDisplayShow');
-					that.reset_title_length();
-				}});
-		}else{//隐藏  left+10000；
+			$wrap.css({
+				'left':$wrap.data('initSize').left + 'px',
+				'top':$wrap.data('initSize').top + 'px',
+				'transform': 'scale(1,1)',
+				'visibility':'visible',
+				'opacity':1
+			}).animate({},{duration:animateTime,complete:function(){
+			}});
+		}else{//隐藏
 			if ($wrap.css('visibility') == 'hidden') return this;
-			$wrap
-				.attr('data-left',$wrap.css("left"))
-				.addClass('animated dialogDisplayHide')
-				.stop(true,true)
-				.animate({opacity:0.01},{duration:200,complete:function(){
-					$wrap.removeClass('animated').removeClass('dialogDisplayHide');
-					$wrap.css({visibility:'hidden',left:'=10000'});
-				}});
-			this.resetIndex();
+
+			var toWidth  = $wrap.outerWidth()*0.8;
+			var toLeft   = -1;
+			var toTop    = -1;
+			if ($(".task-tab #"+that.config.id).exists()){
+				var $taskTab = $(".task-tab #"+that.config.id);
+				toWidth = $taskTab.outerWidth();
+				toLeft  = $taskTab.offset().left;
+				toTop   = $taskTab.offset().top;
+			}
+			var scale = toWidth / $wrap.outerWidth();
+			var animateCss = {
+				'transform': 'scale('+scale+','+scale+')',
+				'opacity':0
+			};
+			$wrap.data('initSize',{
+				left: $wrap.context.offsetLeft,
+				top: $wrap.context.offsetTop
+			});
+			if(toLeft != -1 || toTop != -1){
+				animateCss.left  = toLeft - (1-scale)*$wrap.outerWidth()/2;
+				animateCss.top   = toTop  - (1-scale)*$wrap.outerHeight()/2;
+			}
+			$wrap.css(animateCss).animate({},{duration:animateTime,complete:function(){
+				$wrap.css({visibility:'hidden'});
+			}});
 		}
 		return this;
 	},
@@ -609,7 +746,7 @@ artDialog.fn = artDialog.prototype = {
 		}
 	},
 
-	has_frame:function(){
+	hasFrame:function(){
 		var f = this.DOM.wrap.find('iframe');
 		if (f.length>=1) {
 			return true;
@@ -619,10 +756,15 @@ artDialog.fn = artDialog.prototype = {
 	},
 	refresh:function(){
 		var frame = this.DOM.wrap.find('iframe');
-		frame.attr('src',frame.attr('src'));
+		var src = frame.attr('src');
+		try{
+			frame.get(0).contentWindow.location.reload()
+		}catch(e){
+			frame.attr('src',src);
+		}
 		return this;
 	},
-	open_window:function(){
+	openWindow:function(){
 		var frame = this.DOM.wrap.find('iframe');
 		window.open(frame.attr('src'));
 		return this;
@@ -643,13 +785,19 @@ artDialog.fn = artDialog.prototype = {
 
 	/** 关闭对话框 */
 	close: function () {
+		var beforeFn = this.config.closeBefore;
+		if (typeof beforeFn === 'function' && beforeFn.call(this, window) === false) {//关闭前调用
+			return false;
+		}
+
 		if (this.closed) return this;
 		var that = this,
 			DOM = that.DOM,
 			wrap = DOM.wrap,
 			list = artDialog.list,
 			fn = that.config.close,
-			follow = that.config.follow;
+			follow = that.config.follow,
+			$main = $(this.DOM.main[0]);
 
 		that.time();
 		that.unlock();
@@ -657,8 +805,8 @@ artDialog.fn = artDialog.prototype = {
 			dialogList.close(that.config.id);
 		}
 		that.config && (delete list[that.config['id']]);
-		wrap.addClass('animated dialogClose').animate(
-			{bottom:0},{duration:250,complete:function(){
+
+		var closeThis = function(){
 			if (typeof fn === 'function' && fn.call(that, window) === false) {//iframe关闭调用
 				//return that;//执行动画
 			}
@@ -670,7 +818,6 @@ artDialog.fn = artDialog.prototype = {
 			DOM.buttons.html('');
 
 			if (artDialog.focus === that) artDialog.focus = null;
-			if (follow) follow.removeAttribute(_expando + 'follow');
 
 			that._removeEvent();
 			that.hide(true)._setAbsolute();
@@ -681,7 +828,19 @@ artDialog.fn = artDialog.prototype = {
 			wrap.remove();
 			that.resetIndex();
 			return that;
-		}});
+		}
+
+		if(!that.config.animate){
+			return closeThis();
+		}else{
+			if(this.hasFrame()){
+				$main.find('.aui-content').remove();
+			}
+			wrap.addClass('animated dialogClose').animate(
+				{bottom:0},{duration:200,complete:function(){
+				return closeThis();
+			}});
+		}		
 	},
 
 	/**
@@ -736,9 +895,9 @@ artDialog.fn = artDialog.prototype = {
 		that._lockMask && that._lockMask.css('zIndex', index - 1);
 
 		// 设置最高层的样式
-		top && top.DOM.wrap.removeClass('aui_state_focus');
+		top && top.DOM.wrap.removeClass('aui-state-focus');
 		artDialog.focus = that;
-		wrap.addClass('aui_state_focus');
+		wrap.addClass('aui-state-focus');
 		return that;
 	},
 
@@ -759,7 +918,7 @@ artDialog.fn = artDialog.prototype = {
 				+ 'px' : 'width:100%;height:100%';
 
 		that.zIndex();
-		wrap.addClass('aui_state_lock');
+		wrap.addClass('aui-state-lock');
 		lockMaskWrap[0].style.cssText = sizeCss + ';position:fixed;z-index:'
 			+ index + ';top:0;left:0;overflow:hidden;';
 		lockMask[0].style.cssText = 'height:100%;background:' + config.background
@@ -768,6 +927,14 @@ artDialog.fn = artDialog.prototype = {
 		lockMask.stop();
 		lockMask.bind('click', function () {
 			that._reset();
+
+			wrap.find('.aui-outer')
+				.removeClass('dialogShow pulse animated')
+				.addClass('pulse animated');
+			setTimeout(function(){
+				wrap.find('.aui-outer').removeClass('dialogShow pulse animated')
+			},400);
+
 		}).bind('dblclick', function () {
 			that._click(that.config.cancelVal);
 		});
@@ -780,7 +947,6 @@ artDialog.fn = artDialog.prototype = {
 
 		that._lockMaskWrap = lockMaskWrap;
 		that._lockMask = lockMask;
-
 		that._lock = true;
 		return that;
 	},
@@ -800,7 +966,7 @@ artDialog.fn = artDialog.prototype = {
 		};
 
 		lockMask.stop().unbind();
-		that.DOM.wrap.removeClass('aui_state_lock');
+		that.DOM.wrap.removeClass('aui-state-lock');
 		if (!that.config.duration) {// 取消动画，快速关闭
 			un();
 		} else {
@@ -813,7 +979,8 @@ artDialog.fn = artDialog.prototype = {
 
 	// 获取元素
 	_getDOM: function () {
-		var wrap = document.createElement('div'),
+		var that = this,
+			wrap = document.createElement('div'),
 			body = document.body;
 
 		if(this.config.parentAt && $(this.config.parentAt).length!=0){
@@ -823,13 +990,16 @@ artDialog.fn = artDialog.prototype = {
 		wrap.innerHTML = artDialog._templates;
 		body.insertBefore(wrap, body.firstChild);
 
+		if(!that.config.animate){
+			$(wrap).find('.dialogShow').removeClass('dialogShow').removeClass("animated");
+		}
 		var name, i = 0,
 			DOM = {wrap: $(wrap)},
 			els = wrap.getElementsByTagName('*'),
 			elsLen = els.length;
 
 		for (; i < elsLen; i ++) {
-			name = els[i].className.split('aui_')[1];
+			name = els[i].className.split('aui-')[1];
 			if (name) DOM[name] = $(els[i]);
 		};
 		return DOM;
@@ -915,62 +1085,96 @@ artDialog.fn = artDialog.prototype = {
 		var that = this,
 			$wrap = this.DOM.wrap,
 			$main = $(this.DOM.main[0]);
-		if(!this.has_frame()){//缩放动画
-			$wrap.addClass('dialogChangeMax');
+		//缩放动画
+		if(that.config.animate){
+			$wrap.addClass('dialog-change-max');//animation 0.25s all
 			setTimeout(function(){
-				$('.dialogChangeMax').removeClass('dialogChangeMax');
+				$wrap.removeClass('dialog-change-max');
 			},300);
+
+			if(this.hasFrame()){
+				$main.find('.aui-content').fadeOut(50);
+				setTimeout(function(){
+					$main.find('.aui-content').fadeIn(50);
+				},300);
+			}
 		}
-		if ($wrap.hasClass('dialogMax')) {//还原
-			$wrap.removeClass('dialogMax');
-			$wrap.css({
-				'left':$wrap.data('initSize').left + 'px',
-				'top':$wrap.data('initSize').top + 'px',
-				'width':$wrap.data('initSize').width,
-				'height':$wrap.data('initSize').height
-			});
-			$main.css({
-				'height':$wrap.data('initSize').height
-			});
+
+		if ($wrap.hasClass('dialog-max')) {//还原
+			var dataSize = $wrap.data('initSize');
+			$wrap.removeClass('dialog-max');
+			if(!dataSize){
+				var winWidth  = _$window.width();
+				var winHeight = _$window.height();
+				//初始就是最大化
+				dataSize = {
+					left:winWidth*0.1,
+					top:winHeight*0.1,
+					width:winWidth*0.8,
+					height:winHeight*0.7,
+					mainHeight:winHeight*0.7
+				};
+			}
+			that.size(dataSize.width,dataSize.height);
+			$wrap.css(dataSize);
+			$main.css('height',dataSize.mainHeight)
 		}else{//最大化
 			var dialogDom = $wrap.context;
 			var size = {
 				left: dialogDom.offsetLeft,
 				top: dialogDom.offsetTop,
 				width: $wrap.css("width"),
-				height:$wrap.css("height")
+				height:$wrap.css("height"),
+				mainHeight:$main.height()
 			};
-			$wrap.addClass('dialogMax');
-			$wrap.data('initSize',size);
+			$wrap.addClass('dialog-max');
+			if(!$wrap.hasClass('dialog-min-size')){//最小化
+				$wrap.data('initSize',size);
+			}
 			$wrap.css({
 				'left':0,
 				'top':0,
 				'width':_$window.width(),
 				'height':_$window.height()
 			});
-			var header_height = $wrap.find('.aui_n').height();
-			if(header_height == 0){
-				header_height = $wrap.find('.aui_header').height()
-			}
-			$main.css({
-				'height':(_$window.height()-header_height-5)  + 'px'
-			});
+			var headerHeight = $wrap.find('.aui-n').height() + $wrap.find('.aui-header').height();
+			var footerHeight = $wrap.find('.aui-s').height() + $wrap.find('.aui-footer').height();
+			var mainHeight = _$window.height()- headerHeight - footerHeight;
+			$main.css('height',mainHeight);
+
+			
 		}
-		that.reset_title_length();
+		setTimeout(function(){
+			that._reset();
+		},200);
+		$wrap.removeClass('dialog-min-size');
+		that.resetTitleLength();
 	},
 	_clickMin:function(){
-		try{
-			if (TaskTap!=undefined){
-				this.display(false);
+		var that = this,
+			$wrap = $(this.DOM.wrap);
+		if (window.TaskTap != undefined){
+			core.playSound('window_min');
+			this.display(false);
+		}else{
+			if($wrap.hasClass('dialog-max')){
+				this._clickMax();
 			}
-		} catch(e) {};
+			$wrap.toggleClass('dialog-min-size');
+		}
 	},
 	// 重置位置与尺寸
 	_reset: function (test) {
 		//最大化时，窗口调整保持
-		if (this.DOM.wrap.hasClass('dialogMax')) {
-			this.DOM.wrap.css('width',_$window.width());
-			this.DOM.main[0].style.height = (_$window.height()-_titleBarHeight) + 'px';
+		if (this.DOM.wrap.hasClass('dialog-max')) {
+			// no-title最大化调整窗口  _titleBarHeight
+			var $wrap = $(this.DOM.wrap);
+			var headerHeight = $wrap.find('.aui-n').height() + $wrap.find('.aui-header').height();
+			var footerHeight = $wrap.find('.aui-s').height() + $wrap.find('.aui-footer').height();
+			var mainHeight = _$window.height()- headerHeight - footerHeight;
+
+			$(this.DOM.wrap).css('width',$(window).width());
+			$(this.DOM.main).css('height',mainHeight);
 			return;
 		}
 
@@ -1011,7 +1215,7 @@ artDialog.fn = artDialog.prototype = {
 			resizeTimer && clearTimeout(resizeTimer);
 			resizeTimer = setTimeout(function () {
 				that._reset(isIE);
-			}, 50);
+			},10);
 		};
 		_$window.bind('resize', that._winResize);
 		// 监听点击
@@ -1022,9 +1226,9 @@ artDialog.fn = artDialog.prototype = {
 			var clickClass = $(target).attr('class');
 			//最大化 最小化 关闭
 			switch(clickClass){
-				case 'aui_min':that._clickMin();break;
-				case 'aui_max':that._clickMax();break;
-				case 'aui_close':
+				case 'aui-min':that._clickMin();break;
+				case 'aui-max':that._clickMax();break;
+				case 'aui-close':
 					that._click(config.cancelVal);
 					return false;
 				default:
@@ -1033,7 +1237,7 @@ artDialog.fn = artDialog.prototype = {
 			}
 		})
 		.bind('mousedown', function () {
-			try{rightMenu.hidden();}catch(e){};
+			try{$.contextMenu.hidden();}catch(e){};
 			that.zIndex();
 		});
 	},
@@ -1113,55 +1317,55 @@ _path = window['_artDialog_path'] || (function (script, i, me) {
 // });
 
 // 使用uglifyjs压缩能够预先处理"+"号合并字符串
-// uglifyjs: http://marijnhaverbeke.nl/uglifyjs  fadeIn dialogShow zoomInUp
+// uglifyjs: http://marijnhaverbeke.nl/uglifyjs
 artDialog._templates =
-'<div class="aui_outer animated dialogShow"><div class="aui_mask"></div>'
-+	'<table class="aui_border">'
+'<div class="aui-outer animated dialogShow"><div class="aui-mask"></div>'
++	'<table class="aui-border">'
 +		'<tbody>'
 +			'<tr>'
-+				'<td class="aui_nw"></td>'
-+				'<td class="aui_n"></td>'
-+				'<td class="aui_ne"></td>'
++				'<td class="aui-nw"></td>'
++				'<td class="aui-n"></td>'
++				'<td class="aui-ne"></td>'
 +			'</tr>'
 +			'<tr>'
-+				'<td class="aui_w"></td>'
-+				'<td class="aui_c">'
-+					'<div class="aui_inner">'
-+					'<table class="aui_dialog">'
++				'<td class="aui-w"></td>'
++				'<td class="aui-c">'
++					'<div class="aui-inner">'
++					'<table class="aui-dialog">'
 +						'<tbody>'
 +							'<tr>'
-+								'<td colspan="2" class="aui_header">'
-+									'<div class="aui_titleBar dialog_menu">'
-+										'<div class="aui_title"></div>'
-+										'<a class="aui_min"></a>'
-+										'<a class="aui_max"></a>'
-+										'<a class="aui_close"></a>'
++								'<td colspan="2" class="aui-header">'
++									'<div class="aui-title-bar dialog-menu">'
++										'<div class="aui-title"></div>'
++										'<a class="aui-min"></a>'
++										'<a class="aui-max"></a>'
++										'<a class="aui-close"></a>'
 +									'</div>'
 +								'</td>'
 +							'</tr>'
 +							'<tr>'
-+								'<td class="aui_icon">'
-+									'<div class="aui_iconBg"></div>'
++								'<td class="aui-icon">'
++									'<div class="aui-icon-bg"></div>'
 +								'</td>'
-+								'<td class="aui_main">'
-+									'<div class="aui_content"></div>'
++								'<td class="aui-main">'
++									'<div class="aui-content"></div>'
 +								'</td>'
 +							'</tr>'
 +							'<tr>'
-+								'<td colspan="2" class="aui_footer">'
-+									'<div class="aui_buttons"></div>'
++								'<td colspan="2" class="aui-footer">'
++									'<div class="aui-buttons"></div>'
 +								'</td>'
 +							'</tr>'
 +						'</tbody>'
 +					'</table>'
 +					'</div>'
 +				'</td>'
-+				'<td class="aui_e"></td>'
++				'<td class="aui-e"></td>'
 +			'</tr>'
 +			'<tr>'
-+				'<td class="aui_sw"></td>'
-+				'<td class="aui_s"></td>'
-+				'<td class="aui_se"></td>'
++				'<td class="aui-sw"></td>'
++				'<td class="aui-s"></td>'
++				'<td class="aui-se"></td>'
 +			'</tr>'
 +		'</tbody>'
 +	'</table>'
@@ -1196,7 +1400,7 @@ artDialog.defaults = {
 	height: 'auto',				// 内容高度
 	minWidth: 96,				// 最小宽度限制
 	minHeight: 32,				// 最小高度限制
-	padding: '20px 25px',		// 内容与边界填充距离
+	padding: '0',				// 内容与边界填充距离
 	icon: null,					// 消息图标名称
 	time: null,					// 自动关闭时间
 	esc: true,					// 是否支持Esc键关闭
@@ -1212,8 +1416,10 @@ artDialog.defaults = {
 	left: '50%',				// X轴坐标
 	top: '38.2%',				// Y轴坐标
 	zIndex: 300,				// 对话框叠加高度值(重要：此值不能超过浏览器最大限制)
+	disableTab:false,			// 默认显示任务栏
 
-	ico:'./static/images/file_16/info.png',//默认标题小图标
+	animate:true,				//对话框打开关闭、显示隐藏、最大化最小化动画是否显示
+	ico:'<img src="./static/images/file_icon/icon_others/info.png" draggable="false" ondragstart="return false;"/>',//默认标题小图标
 	resize: false,				// 是否允许用户调节尺寸
 	drag: true					// 是否允许用户拖动位置
 };
@@ -1280,7 +1486,6 @@ artDialog.dragEvent.prototype = {
 		this.onend(event.clientX, event.clientY);
 		return false;
 	}
-
 };
 
 preMouseUpTime=0;
@@ -1327,13 +1532,13 @@ _use = function (event) {
 		}
 		_isSetCapture && title[0].setCapture();
 
-		wrap.addClass('aui_state_drag');
+		wrap.addClass('aui-state-drag');
 		api.focus();
 	};
 
 	// 对话框拖动,8个方向调整大小
 	_dragEvent.onmove = function (x, y) {
-		if (wrap.hasClass('dialogMax')) return;//最大化则不可拖动
+		if (wrap.hasClass('dialog-max')) return;//最大化则不可拖动
 		x = (x >= screenWidth ? screenWidth : x);
 		y = (y >= screenHeight ? screenHeight : y);
 		x = (x <= 0 ? 0 : x);
@@ -1398,7 +1603,7 @@ _use = function (event) {
 
 			style.width = Math.max(0, width) + 'px';
 			style.height = Math.max(0, height) + 'px';
-			api.reset_title_length();
+			api.resetTitleLength();
 		} else {
 			var style = wrap[0].style;
 			style.left = x + startLeft  + 'px';
@@ -1426,7 +1631,7 @@ _use = function (event) {
 		_isSetCapture && title[0].releaseCapture();
 
 		!api.closed && api._autoPositionType();
-		wrap.removeClass('aui_state_drag');
+		wrap.removeClass('aui-state-drag');
 
 		//iframe的话，焦点移到iframe中
 		if($(DOM.wrap).find('iframe').length>=1){
@@ -1438,6 +1643,7 @@ _use = function (event) {
 	resizeDirection= $(event.target).attr('resize');
 	_dragEvent.start(event);
 };
+
 
 // 代理 mousedown 事件触发对话框拖动
 _$document.bind('mousedown', function (event) {
@@ -1611,8 +1817,8 @@ artDialog.open = function (url, options, cache) {
 
 	var load = function () {
 		var iWidth, iHeight,aConfig = api.config;
-		DOM.content.find('.aui_loading').remove();
-		$content.addClass('aui_state_full');
+		DOM.content.find('.aui-loading').remove();
+		$content.addClass('aui-state-full');
 		try {
 			iwin = iframe.contentWindow;
 			$idoc = $(iwin.document);
@@ -1642,10 +1848,17 @@ artDialog.open = function (url, options, cache) {
 		iframe.style.cssText = loadCss;
 		api.size(iWidth, iHeight);
 
-		// 调整对话框位置
-		aConfig.follow
-		? api.follow(aConfig.follow)
-		: api.position(aConfig.left, aConfig.top);
+		//Safari 加入css动画后iframe错位问题；解决：再来个css动画会自动归位
+		if($.browser.safari){
+			setTimeout(function(){
+				$.artDialog.tips("",0.01);
+			},10);
+		}
+
+		// 调整对话框位置 暂时屏蔽 TODO
+		// aConfig.follow
+		// ? api.follow(aConfig.follow)
+		// : api.position(aConfig.left, aConfig.top);
 
 		options.init && options.init.call(api, iwin, top);
 		options.init = null;
@@ -1658,7 +1871,8 @@ artDialog.open = function (url, options, cache) {
 			DOM = api.DOM;
 			$main = DOM.main;
 			$content = DOM.content;
-			DOM.content.append('<div class="aui_loading"><span>loading..</span></div>');
+			DOM.content.append('<div class="aui-loading"><span>loading..</span></div>');
+			DOM.wrap.find(".aui-loading").css({'top':DOM.wrap.find('.aui-title').height()/2 });
 
 			iframe = api.iframe = top.document.createElement('iframe');
 			iframe.src = url;
@@ -1671,6 +1885,10 @@ artDialog.open = function (url, options, cache) {
 			}
 			$iframe = $(iframe);
 			api.content().appendChild(iframe);//TODO
+
+			$iframe.attr('allowfullscreen','true')
+				.attr('webkitallowfullscreen','true')
+				.attr('mozallowfullscreen','true')
 			iwin = iframe.contentWindow;
 			try {
 				iwin.name = iframe.name;
@@ -1679,13 +1897,18 @@ artDialog.open = function (url, options, cache) {
 			} catch (e) {};
 			$iframe.one('load', load);
 			//$frame.css('display','none');
+			//iframe 持续未加载完成处理
+			setTimeout(function(){
+				DOM.content.find('.aui-loading').fadeOut(600).remove();
+				$iframe.get(0).style.cssText = 'left:0;top:0;width:100%;height:100%;border:none';
+			},500);
 		},
 		close: function () {
 			$iframe.css('display', 'none').unbind('load', load);
 			if (options.close && options.close.call(this, iframe.contentWindow, top) === false) {
 				return false;
 			};
-			$content.removeClass('aui_state_full');
+			$content.removeClass('aui-state-full');
 			// 重要！重置iframe地址，否则下次出现的对话框在IE6、7无法聚焦input
 			// IE删除iframe后，iframe仍然会留在内存中出现上述问题，置换src是最容易解决的方法
 			$iframe[0].src = 'about:blank';
@@ -1784,6 +2007,7 @@ artDialog.alert = function (content, callback) {
 		id: 'Alert',
 		zIndex: _zIndex(),
 		icon: 'warning',
+		padding:"30px 35px",
 		fixed: true,
 		lock: true,
 		content: content,
@@ -1805,9 +2029,10 @@ artDialog.confirm = function (content, yes, no) {
 		zIndex: _zIndex(),
 		icon: 'question',
 		fixed: true,
+		padding:"40px",
 		lock: true,
 		opacity: .1,
-		content: content,
+		content:'<div style="width:220px;" class="can-select">'+content+'</div>',
 		ok: function (here) {
 			return yes.call(this, here);
 		},
@@ -1827,20 +2052,19 @@ artDialog.confirm = function (content, yes, no) {
 artDialog.prompt = function (content, yes, value) {
 	value = value || '';
 	var input;
-
 	return _proxyDialog({
 		id: 'Prompt',
 		zIndex: _zIndex(),
 		icon: 'question',
 		fixed: true,
-		padding:0,
+		padding:"30px 35px",
 		lock: true,
 		opacity: .1,
 		content: [
 			'<div style="margin-bottom:5px;font-size:12px">',
 				content,
 			'</div>',
-			'<div class="prompt_input">',
+			'<div class="prompt-input">',
 				'<input value="',
 					value,
 				'" style="padding:6px 4px" />',
@@ -1869,6 +2093,7 @@ artDialog.tips = function (content, time) {
 		id: 'Tips',
 		zIndex: _zIndex(),
 		title: false,
+		padding:20,
 		cancel: false,
 		fixed: true,
 		lock: false
@@ -1929,9 +2154,4 @@ $(function () {
 
 })(this.art || this.jQuery, this, this.artDialog);
 
-if (typeof(LNG) != 'undefined') {
-	artDialog.defaults.title='tips';
-	artDialog.defaults.okVal = LNG.button_ok;
-	artDialog.defaults.cancelVal = LNG.button_cancel;
-};
 
